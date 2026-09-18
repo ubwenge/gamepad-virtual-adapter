@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -15,7 +16,21 @@ import (
 
 func main() {
 	configPath := flag.String("config", "", "path to mapper configuration TOML")
+	monitor := flag.Bool("monitor", false, "print raw USB input reports instead of mapping keys")
 	flag.Parse()
+
+	if *monitor {
+		device := defaultDeviceConfig()
+		if *configPath != "" {
+			var err error
+			device, err = loadMonitorConfig(*configPath)
+			if err != nil {
+				log.Fatalf("Invalid monitor config: %v", err)
+			}
+		}
+		runController(device, true, mapperConfig{})
+		return
+	}
 
 	config := defaultMapperConfig()
 	if *configPath != "" {
@@ -25,12 +40,21 @@ func main() {
 			log.Fatalf("Invalid config: %v", err)
 		}
 	}
+	runController(deviceConfig{vendorID: config.vendorID, productID: config.productID}, false, config)
+}
+
+func runController(device deviceConfig, monitor bool, config mapperConfig) {
 
 	ctx := gousb.NewContext()
 	defer ctx.Close()
 
-	fmt.Printf("Searching for controller %04X:%04X...\n", config.vendorID, config.productID)
-	dev, err := ctx.OpenDeviceWithVIDPID(gousb.ID(config.vendorID), gousb.ID(config.productID))
+	status := os.Stdout
+	if monitor {
+		// Keep stdout exclusively for reports so it can be redirected to a log.
+		status = os.Stderr
+	}
+	fmt.Fprintf(status, "Searching for controller %04X:%04X...\n", device.vendorID, device.productID)
+	dev, err := ctx.OpenDeviceWithVIDPID(gousb.ID(device.vendorID), gousb.ID(device.productID))
 	if err != nil {
 		log.Fatalf("Failed to open device: %v. (Did you use sudo?)", err)
 	}
@@ -51,12 +75,6 @@ func main() {
 		log.Fatalf("Failed to open IN Endpoint 0x81: %v", err)
 	}
 
-	keyboard := newMacKeyboard(config.keys)
-	if !keyboardEventAccessGranted() {
-		log.Println("Warning: macOS may block synthesized keyboard events until Accessibility/Input Monitoring access is granted to this application.")
-	}
-	defer keyboard.ReleaseAll()
-
 	stop := make(chan struct{})
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
@@ -66,7 +84,36 @@ func main() {
 		close(stop)
 	}()
 
-	fmt.Println("Controller mapper online.")
+	if monitor {
+		fmt.Fprintln(status, "Controller monitor online.")
+		runReportMode(true, epIn, config, stop, nil)
+		return
+	}
+
+	fmt.Fprintln(status, "Controller mapper online.")
+	runReportMode(false, epIn, config, stop, func(keys []keyCode) mapperKeyboard {
+		keyboard := newMacKeyboard(keys)
+		if !keyboardEventAccessGranted() {
+			log.Println("Warning: macOS may block synthesized keyboard events until Accessibility/Input Monitoring access is granted to this application.")
+		}
+		return keyboard
+	})
+}
+
+type mapperKeyboard interface {
+	keySynchronizer
+	ReleaseAll()
+}
+
+// runReportMode dispatches after USB setup. Its factory keeps keyboard setup
+// completely out of monitor mode.
+func runReportMode(monitor bool, epIn *gousb.InEndpoint, config mapperConfig, stop <-chan struct{}, newKeyboard func([]keyCode) mapperKeyboard) {
+	if monitor {
+		liveMonitor(epIn, stop)
+		return
+	}
+	keyboard := newKeyboard(config.keys)
+	defer keyboard.ReleaseAll()
 	liveReport(epIn, keyboard, config, stop)
 }
 
@@ -118,4 +165,27 @@ func liveReport(epIn *gousb.InEndpoint, keyboard keySynchronizer, config mapperC
 		lastActive = active
 		keyboard.Sync(desired)
 	}
+}
+
+func liveMonitor(epIn *gousb.InEndpoint, stop <-chan struct{}) {
+	for {
+		select {
+		case <-stop:
+			return
+		default:
+		}
+		report, err := readReport(epIn, stop)
+		if err != nil {
+			continue
+		}
+		fmt.Println(formatReport(report))
+	}
+}
+
+func formatReport(report []byte) string {
+	values := make([]string, len(report))
+	for i, value := range report {
+		values[i] = fmt.Sprintf("%02X", value)
+	}
+	return strings.Join(values, " ")
 }

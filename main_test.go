@@ -140,6 +140,87 @@ A = "Space"
 	}
 }
 
+func TestMonitorConfigLoadsIDsWithoutMappings(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "monitor.toml")
+	contents := `vendor_id = 0x0E6F
+product_id = 0x0401
+# Monitor mode deliberately ignores unfinished mapping configuration.
+[signals.Face]
+A = 1
+`
+	if err := os.WriteFile(path, []byte(contents), 0600); err != nil {
+		t.Fatal(err)
+	}
+	config, err := loadMonitorConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config != (deviceConfig{vendorID: 0x0E6F, productID: 0x0401}) {
+		t.Fatalf("monitor config = %#v", config)
+	}
+}
+
+func TestMonitorConfigRequiresValidIDs(t *testing.T) {
+	tests := []struct {
+		name     string
+		contents string
+	}{
+		{"missing vendor ID", "product_id = 1\n"},
+		{"missing product ID", "vendor_id = 1\n"},
+		{"zero vendor ID", "vendor_id = 0\nproduct_id = 1\n"},
+		{"zero product ID", "vendor_id = 1\nproduct_id = 0\n"},
+		{"wide vendor ID", "vendor_id = 0x10000\nproduct_id = 1\n"},
+		{"wide product ID", "vendor_id = 1\nproduct_id = 0x10000\n"},
+		{"invalid TOML", "vendor_id = [\n"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "monitor.toml")
+			if err := os.WriteFile(path, []byte(test.contents), 0600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := loadMonitorConfig(path); err == nil {
+				t.Fatal("loadMonitorConfig succeeded")
+			}
+		})
+	}
+}
+
+func TestNormalMapperRejectsIDOnlyConfig(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "ids-only.toml")
+	if err := os.WriteFile(path, []byte("vendor_id = 1\nproduct_id = 2\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := loadMapperConfig(path); err == nil {
+		t.Fatal("loadMapperConfig accepted ID-only configuration")
+	}
+}
+
+func TestFormatReport(t *testing.T) {
+	tests := []struct {
+		report []byte
+		want   string
+	}{
+		{nil, ""},
+		{[]byte{0x0A}, "0A"},
+		{[]byte{0x00, 0x14, 0xFF}, "00 14 FF"},
+	}
+	for _, test := range tests {
+		if got := formatReport(test.report); got != test.want {
+			t.Errorf("formatReport(% X) = %q, want %q", test.report, got, test.want)
+		}
+	}
+}
+
+func TestRunReportModeMonitorSkipsKeyboardConstruction(t *testing.T) {
+	stop := make(chan struct{})
+	close(stop)
+	runReportMode(true, nil, mapperConfig{}, stop, func([]keyCode) mapperKeyboard {
+		t.Fatal("monitor mode constructed a keyboard mapper")
+		return nil
+	})
+}
+
 func TestAllXInputSignalSectionsAreAccepted(t *testing.T) {
 	raw := fileConfig{VendorID: 1, ProductID: 2, Keys: make(map[string]string)}
 	groups := []struct {

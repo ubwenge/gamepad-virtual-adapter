@@ -54,6 +54,14 @@ type fileSignals struct {
 	Sticks    map[string]string `toml:"Sticks"`
 }
 
+// deviceConfig identifies the USB controller to open. It is intentionally
+// separate from mapperConfig so monitor mode can be used before any signals or
+// keyboard bindings have been discovered.
+type deviceConfig struct {
+	vendorID  uint16
+	productID uint16
+}
+
 // mapperConfig is the fully validated runtime configuration.
 type mapperConfig struct {
 	vendorID       uint16
@@ -101,6 +109,23 @@ func defaultMapperConfig() mapperConfig {
 	return config
 }
 
+func defaultDeviceConfig() deviceConfig {
+	return deviceConfig{vendorID: 0x0E6F, productID: 0x0401}
+}
+
+// loadMonitorConfig reads only the controller IDs. Mapping fields are ignored
+// so an ID-only configuration can bootstrap report capture.
+func loadMonitorConfig(path string) (deviceConfig, error) {
+	var raw struct {
+		VendorID  uint64 `toml:"vendor_id"`
+		ProductID uint64 `toml:"product_id"`
+	}
+	if _, err := toml.DecodeFile(path, &raw); err != nil {
+		return deviceConfig{}, fmt.Errorf("read config %q: %w", path, err)
+	}
+	return buildDeviceConfig(raw.VendorID, raw.ProductID)
+}
+
 func loadMapperConfig(path string) (mapperConfig, error) {
 	var raw fileConfig
 	metadata, err := toml.DecodeFile(path, &raw)
@@ -119,11 +144,9 @@ func loadMapperConfig(path string) (mapperConfig, error) {
 }
 
 func buildMapperConfig(raw fileConfig) (mapperConfig, error) {
-	if raw.VendorID == 0 || raw.VendorID > 0xFFFF {
-		return mapperConfig{}, fmt.Errorf("vendor_id must be a non-zero 16-bit value")
-	}
-	if raw.ProductID == 0 || raw.ProductID > 0xFFFF {
-		return mapperConfig{}, fmt.Errorf("product_id must be a non-zero 16-bit value")
+	device, err := buildDeviceConfig(raw.VendorID, raw.ProductID)
+	if err != nil {
+		return mapperConfig{}, err
 	}
 	signals, err := collectSignals(raw.Signals)
 	if err != nil {
@@ -159,7 +182,7 @@ func buildMapperConfig(raw fileConfig) (mapperConfig, error) {
 		}
 	}
 
-	config := mapperConfig{vendorID: uint16(raw.VendorID), productID: uint16(raw.ProductID)}
+	config := mapperConfig{vendorID: device.vendorID, productID: device.productID}
 	for _, name := range knownSignalNames {
 		signal, exists := signals[name]
 		if !exists {
@@ -185,6 +208,16 @@ func buildMapperConfig(raw fileConfig) (mapperConfig, error) {
 		}
 	}
 	return config, nil
+}
+
+func buildDeviceConfig(vendorID, productID uint64) (deviceConfig, error) {
+	if vendorID == 0 || vendorID > 0xFFFF {
+		return deviceConfig{}, fmt.Errorf("vendor_id must be a non-zero 16-bit value")
+	}
+	if productID == 0 || productID > 0xFFFF {
+		return deviceConfig{}, fmt.Errorf("product_id must be a non-zero 16-bit value")
+	}
+	return deviceConfig{vendorID: uint16(vendorID), productID: uint16(productID)}, nil
 }
 
 type configuredSignal struct {

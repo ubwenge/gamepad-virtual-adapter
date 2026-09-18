@@ -1,8 +1,12 @@
 # Controller mapper configuration template.
 #
-# Copy this file to config.toml, then uncomment and fill in the vendor/product
-# IDs, only the signals you captured, and exactly one matching key binding for
-# every configured signal. Each report is a complete captured input report;
+# Bootstrap a new controller by copying this file to config.toml, uncommenting
+# only vendor_id and product_id, then running `pdp-mapper --monitor --config
+# config.toml`. Record the raw reports it prints and manually add one
+# [bracketed span] plus a key binding for each signal you want to map.
+#
+# Mapper mode requires the IDs, at least one signal, and exactly one matching
+# key binding for every configured signal. Each report is a complete captured input report;
 # only the one [bracketed span] is matched. A one-byte span is a bit mask,
 # while a multi-byte span is an exact match.
 #
