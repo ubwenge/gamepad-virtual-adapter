@@ -1,0 +1,29 @@
+# PDP Xbox 360 clone controller. Each report is the full captured input report;
+# only the bytes inside [brackets] are used for matching.
+vendor_id = 0x0E6F
+product_id = 0x0401
+
+# A one-byte Face span is a bit mask, so buttons may be held simultaneously.
+[signals.Face]
+A = "00 14 00 [10] 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+B = "00 14 00 [20] 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+X = "00 14 00 [40] 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+Y = "00 14 00 [80] 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"
+
+# Stick spans are exact matches. Each stick's four directional rules are
+# exclusive: a diagonal suppresses that stick's directions only.
+[signals.Sticks]
+LeftThumbUp =    "00 14 00 00 00 00 00 00 [FF 7F] 00 00 00 00 00 00 00 00 00 00"
+LeftThumbDown =  "00 14 00 00 00 00 00 00 [00 80] 00 00 00 00 00 00 00 00 00 00"
+LeftThumbLeft =  "00 14 00 00 00 00 [00 80] 00 00 00 00 00 00 00 00 00 00 00 00"
+LeftThumbRight = "00 14 00 00 00 00 [FF 7F] 00 00 00 00 00 00 00 00 00 00 00 00"
+
+[keys]
+LeftThumbUp = "W"
+LeftThumbDown = "S"
+LeftThumbLeft = "A"
+LeftThumbRight = "D"
+A = "Space"
+B = "Escape"
+X = "E"
+Y = "Q"

@@ -24,9 +24,9 @@ type macKeyboard struct {
 	*heldKeyState
 }
 
-func newMacKeyboard() *macKeyboard {
+func newMacKeyboard(keys []keyCode) *macKeyboard {
 	keyboard := &macKeyboard{}
-	keyboard.heldKeyState = newHeldKeyState(keyboard)
+	keyboard.heldKeyState = newHeldKeyState(keyboard, keys...)
 	return keyboard
 }
 

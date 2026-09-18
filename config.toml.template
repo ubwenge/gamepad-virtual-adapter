@@ -1,0 +1,77 @@
+# Controller mapper configuration template.
+#
+# Copy this file to config.toml, then uncomment and fill in the vendor/product
+# IDs, only the signals you captured, and exactly one matching key binding for
+# every configured signal. Each report is a complete captured input report;
+# only the one [bracketed span] is matched. A one-byte span is a bit mask,
+# while a multi-byte span is an exact match.
+#
+# This file is deliberately comment-only, so it is valid TOML but fails mapper
+# validation until you provide your controller's IDs, reports, and bindings.
+
+# vendor_id = 0x1234
+# product_id = 0x5678
+
+# [signals.Face]
+# A = "<captured report with one [bracketed span]>"
+# B = "<captured report with one [bracketed span]>"
+# X = "<captured report with one [bracketed span]>"
+# Y = "<captured report with one [bracketed span]>"
+
+# D-pad directions are independent, so a diagonal may emit both configured
+# directions.
+# [signals.DPad]
+# DPadUp = "<captured report with one [bracketed span]>"
+# DPadDown = "<captured report with one [bracketed span]>"
+# DPadLeft = "<captured report with one [bracketed span]>"
+# DPadRight = "<captured report with one [bracketed span]>"
+
+# [signals.System]
+# Start = "<captured report with one [bracketed span]>"
+# Back = "<captured report with one [bracketed span]>"
+
+# [signals.Shoulders]
+# LeftShoulder = "<captured report with one [bracketed span]>"
+# RightShoulder = "<captured report with one [bracketed span]>"
+
+# Thumb clicks are ordinary, independent rules. Directional rules are exclusive
+# per physical stick: a diagonal suppresses output for that stick only.
+# [signals.Sticks]
+# LeftThumb = "<captured report with one [bracketed span]>"
+# RightThumb = "<captured report with one [bracketed span]>"
+# LeftThumbUp = "<captured report with one [bracketed span]>"
+# LeftThumbDown = "<captured report with one [bracketed span]>"
+# LeftThumbLeft = "<captured report with one [bracketed span]>"
+# LeftThumbRight = "<captured report with one [bracketed span]>"
+# RightThumbUp = "<captured report with one [bracketed span]>"
+# RightThumbDown = "<captured report with one [bracketed span]>"
+# RightThumbLeft = "<captured report with one [bracketed span]>"
+# RightThumbRight = "<captured report with one [bracketed span]>"
+
+# [keys]
+# A = "<key name>"
+# B = "<key name>"
+# X = "<key name>"
+# Y = "<key name>"
+# DPadUp = "<key name>"
+# DPadDown = "<key name>"
+# DPadLeft = "<key name>"
+# DPadRight = "<key name>"
+# Start = "<key name>"
+# Back = "<key name>"
+# LeftShoulder = "<key name>"
+# RightShoulder = "<key name>"
+# LeftThumb = "<key name>"
+# RightThumb = "<key name>"
+# LeftThumbUp = "<key name>"
+# LeftThumbDown = "<key name>"
+# LeftThumbLeft = "<key name>"
+# LeftThumbRight = "<key name>"
+# RightThumbUp = "<key name>"
+# RightThumbDown = "<key name>"
+# RightThumbLeft = "<key name>"
+# RightThumbRight = "<key name>"
+#
+# Key names: A-Z, 0-9, Space, Escape, Enter, Tab, Backspace, ArrowUp,
+# ArrowDown, ArrowLeft, ArrowRight, LeftShift, LeftControl, LeftOption, and
+# LeftCommand. A keyboard output may be bound to only one signal.
