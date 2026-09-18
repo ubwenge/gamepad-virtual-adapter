@@ -1,0 +1,153 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: macOS ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            file_arch: arm64
+            runner: macos-14
+          - arch: amd64
+            file_arch: x86_64
+            runner: macos-13
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install native build dependencies
+        run: |
+          brew install libusb pkg-config
+          echo "PKG_CONFIG_PATH=$(brew --prefix libusb)/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}" >> "$GITHUB_ENV"
+
+      - name: Verify and test
+        run: |
+          test -z "$(gofmt -l .)"
+          go vet ./...
+          go test ./...
+
+      - name: Build release archive
+        env:
+          ARCH: ${{ matrix.arch }}
+          FILE_ARCH: ${{ matrix.file_arch }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          NAME="gamepad-virtual-adapter_${VERSION}_darwin_${ARCH}"
+          mkdir -p dist
+          go build -trimpath -ldflags="-s -w" -o "dist/gamepad-virtual-adapter" .
+          test "$(go env GOARCH)" = "$ARCH"
+          file "dist/gamepad-virtual-adapter" | grep -q "$FILE_ARCH"
+          tar -C dist -czf "dist/${NAME}.tar.gz" gamepad-virtual-adapter
+          rm dist/gamepad-virtual-adapter
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: gamepad-virtual-adapter-${{ matrix.arch }}
+          path: dist/*.tar.gz
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    name: Publish GitHub Release and Homebrew Cask
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          pattern: gamepad-virtual-adapter-*
+          merge-multiple: true
+          path: dist
+
+      - name: Create checksums
+        run: |
+          cd dist
+          shasum -a 256 gamepad-virtual-adapter_*.tar.gz > SHA256SUMS.txt
+          shasum -a 256 -c SHA256SUMS.txt
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/*.tar.gz dist/SHA256SUMS.txt \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes
+
+      - name: Check out Homebrew tap
+        uses: actions/checkout@v7
+        with:
+          repository: ubwenge/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
+          path: tap
+
+      - name: Generate Homebrew Cask
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          VERSION="${TAG#v}"
+          ARM64_ARCHIVE="gamepad-virtual-adapter_${VERSION}_darwin_arm64.tar.gz"
+          AMD64_ARCHIVE="gamepad-virtual-adapter_${VERSION}_darwin_amd64.tar.gz"
+          ARM64_SHA="$(awk -v file="$ARM64_ARCHIVE" '$2 == file { print $1 }' dist/SHA256SUMS.txt)"
+          AMD64_SHA="$(awk -v file="$AMD64_ARCHIVE" '$2 == file { print $1 }' dist/SHA256SUMS.txt)"
+          test -n "$ARM64_SHA"
+          test -n "$AMD64_SHA"
+          mkdir -p tap/Casks
+          {
+            echo 'cask "gamepad-virtual-adapter" do'
+            echo "  version \"$VERSION\""
+            echo
+            echo '  on_arm do'
+            echo "    url \"https://github.com/ubwenge/gamepad-virtual-adapter/releases/download/$TAG/$ARM64_ARCHIVE\""
+            echo "    sha256 \"$ARM64_SHA\""
+            echo '  end'
+            echo
+            echo '  on_intel do'
+            echo "    url \"https://github.com/ubwenge/gamepad-virtual-adapter/releases/download/$TAG/$AMD64_ARCHIVE\""
+            echo "    sha256 \"$AMD64_SHA\""
+            echo '  end'
+            echo
+            echo '  name "Gamepad Virtual Adapter"'
+            echo '  desc "Maps USB game-controller input to macOS keyboard events"'
+            echo '  homepage "https://github.com/ubwenge/gamepad-virtual-adapter"'
+            echo
+            echo '  depends_on formula: "libusb"'
+            echo '  binary "gamepad-virtual-adapter"'
+            echo
+            echo '  caveats <<~EOS'
+            echo '    Grant Accessibility and Input Monitoring permission to the installed binary'
+            echo '    before using it to synthesize keyboard events.'
+            echo
+            echo '    This MVP build is not signed or notarized. If macOS blocks it, remove'
+            echo '    its quarantine attribute with:'
+            echo '      xattr -dr com.apple.quarantine "$(which gamepad-virtual-adapter)"'
+            echo '  EOS'
+            echo 'end'
+          } > tap/Casks/gamepad-virtual-adapter.rb
+          ruby -c tap/Casks/gamepad-virtual-adapter.rb
+
+      - name: Publish Homebrew Cask
+        working-directory: tap
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Casks/gamepad-virtual-adapter.rb
+          git commit -m "gamepad-virtual-adapter $GITHUB_REF_NAME"
+          git push

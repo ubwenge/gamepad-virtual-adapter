@@ -1,8 +1,8 @@
 # Controller mapper configuration template.
 #
-# Bootstrap a new controller by copying this file to config.toml, uncommenting
+# Bootstrap a new controller by copying this file to config.local.toml, uncommenting
 # only vendor_id and product_id, then running `gamepad-virtual-adapter --monitor --config
-# config.toml`. Record the raw reports it prints and manually add one
+# config.local.toml`. Record the raw reports it prints and manually add one
 # [bracketed span] plus a key binding for each signal you want to map.
 #
 # Mapper mode requires the IDs, at least one signal, and exactly one matching

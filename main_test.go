@@ -12,7 +12,7 @@ import (
 )
 
 func TestSampleConfigMatchesCurrentControllerReports(t *testing.T) {
-	config, err := loadMapperConfig("config.toml")
+	config, err := loadMapperConfig("config-sample.toml")
 	if err != nil {
 		t.Fatal(err)
 	}

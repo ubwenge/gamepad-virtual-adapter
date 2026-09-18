@@ -37,6 +37,42 @@ Run the tests with:
 go test ./...
 ```
 
+## Install with Homebrew
+
+The released macOS binaries are available for Apple Silicon and Intel Macs:
+
+```sh
+brew install --cask ubwenge/tap/gamepad-virtual-adapter
+```
+
+The Cask installs `libusb` automatically. Grant the installed binary
+Accessibility and Input Monitoring access before running it. MVP releases are
+not yet signed or notarized; if macOS blocks the binary, remove its quarantine
+attribute:
+
+```sh
+xattr -dr com.apple.quarantine "$(which gamepad-virtual-adapter)"
+```
+
+You can also download the matching archive and its checksum from the project's
+[GitHub Releases](https://github.com/ubwenge/gamepad-virtual-adapter/releases).
+
+## Publishing a release
+
+The release workflow runs when a semantic version tag such as `v0.1.0` is
+pushed. It creates macOS arm64 and amd64 archives, uploads them to GitHub
+Releases, and updates the `ubwenge/homebrew-tap` Cask.
+
+Before the first release, create the public `ubwenge/homebrew-tap` repository
+and add a `HOMEBREW_TAP_GITHUB_TOKEN` repository secret here. The secret must
+be a fine-grained GitHub token restricted to that tap repository with Contents
+read/write permission.
+
+```sh
+git tag v0.1.0
+git push origin v0.1.0
+```
+
 ## Configure another controller
 
 1. Create a local configuration from the template:
