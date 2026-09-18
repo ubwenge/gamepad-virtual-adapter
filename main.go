@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"sort"
 	"strings"
 	"syscall"
 	"time"
@@ -17,6 +18,7 @@ import (
 func main() {
 	configPath := flag.String("config", "", "path to mapper configuration TOML")
 	monitor := flag.Bool("monitor", false, "print raw USB input reports instead of mapping keys")
+	debug := flag.Bool("debug", false, "log USB interface-selection diagnostics")
 	flag.Parse()
 
 	if *monitor {
@@ -28,7 +30,7 @@ func main() {
 				log.Fatalf("Invalid monitor config: %v", err)
 			}
 		}
-		runController(device, true, mapperConfig{})
+		runController(device, true, mapperConfig{}, *debug)
 		return
 	}
 
@@ -40,10 +42,10 @@ func main() {
 			log.Fatalf("Invalid config: %v", err)
 		}
 	}
-	runController(deviceConfig{vendorID: config.vendorID, productID: config.productID}, false, config)
+	runController(deviceConfig{vendorID: config.vendorID, productID: config.productID}, false, config, *debug)
 }
 
-func runController(device deviceConfig, monitor bool, config mapperConfig) {
+func runController(device deviceConfig, monitor bool, config mapperConfig, debug bool) {
 
 	ctx := gousb.NewContext()
 	defer ctx.Close()
@@ -63,16 +65,11 @@ func runController(device deviceConfig, monitor bool, config mapperConfig) {
 	}
 	defer dev.Close()
 
-	intf, release, err := claimControllerInterface(dev)
+	_, epIn, release, err := claimControllerInterface(dev, debug)
 	if err != nil {
 		log.Fatalf("Failed to claim controller interface: %v", err)
 	}
 	defer release()
-
-	epIn, err := intf.InEndpoint(1)
-	if err != nil {
-		log.Fatalf("Failed to open IN Endpoint 0x81: %v", err)
-	}
 
 	stop := make(chan struct{})
 	signals := make(chan os.Signal, 1)
@@ -99,38 +96,83 @@ func runController(device deviceConfig, monitor bool, config mapperConfig) {
 	})
 }
 
-// claimControllerInterface avoids DefaultInterface because this device reports
-// configuration ID 1 even though libusb reports its active configuration as 0.
-func claimControllerInterface(dev *gousb.Device) (*gousb.Interface, func(), error) {
+// claimControllerInterface avoids DefaultInterface because this device can
+// report an active configuration ID that is absent from its descriptors.
+func claimControllerInterface(dev *gousb.Device, debug bool) (*gousb.Interface, *gousb.InEndpoint, func(), error) {
 	if err := dev.SetAutoDetach(true); err != nil {
-		return nil, nil, fmt.Errorf("enable kernel driver auto-detach: %w", err)
+		return nil, nil, nil, fmt.Errorf("enable kernel driver auto-detach: %w", err)
 	}
 
-	cfg, err := dev.Config(1)
-	if err != nil {
+	var failures []string
+	for _, configID := range configurationIDs(dev) {
+		if debug {
+			log.Printf("Trying configuration %d", configID)
+		}
+		cfg, err := dev.Config(configID)
+		if err != nil {
+			failures = append(failures, fmt.Sprintf("configuration %d: %v", configID, err))
+			if debug {
+				log.Printf("Configuration %d failed: %v", configID, err)
+			}
+			continue
+		}
+
+		intf, err := cfg.Interface(0, 0)
+		if err != nil {
+			cfg.Close()
+			failures = append(failures, fmt.Sprintf("configuration %d interface 0: %v", configID, err))
+			if debug {
+				log.Printf("Configuration %d interface 0/0 failed: %v", configID, err)
+			}
+			continue
+		}
+
+		epIn, err := intf.InEndpoint(1)
+		if err != nil {
+			intf.Close()
+			cfg.Close()
+			failures = append(failures, fmt.Sprintf("configuration %d endpoint 0x81: %v", configID, err))
+			if debug {
+				log.Printf("Configuration %d endpoint 0x81 failed: %v", configID, err)
+			}
+			continue
+		}
+
+		if debug {
+			log.Printf("Selected configuration %d, interface 0/0, endpoint 0x81", configID)
+		}
+		return intf, epIn, func() {
+			intf.Close()
+			cfg.Close()
+		}, nil
+	}
+
+	if debug {
 		logAvailableInterfaces(dev)
-		return nil, nil, fmt.Errorf("claim configuration 1: %w", err)
 	}
-
-	intf, err := cfg.Interface(0, 0)
-	if err != nil {
-		cfg.Close()
-		logAvailableInterfaces(dev)
-		return nil, nil, fmt.Errorf("claim interface 0 in configuration 1: %w", err)
+	if len(failures) == 0 {
+		return nil, nil, nil, fmt.Errorf("device has no configurations")
 	}
+	return nil, nil, nil, fmt.Errorf("no usable configuration: %s", strings.Join(failures, "; "))
+}
 
-	return intf, func() {
-		intf.Close()
-		cfg.Close()
-	}, nil
+func configurationIDs(dev *gousb.Device) []int {
+	ids := make([]int, 0, len(dev.Desc.Configs))
+	for configID := range dev.Desc.Configs {
+		ids = append(ids, configID)
+	}
+	sort.Ints(ids)
+	return ids
 }
 
 func logAvailableInterfaces(dev *gousb.Device) {
-	for configNumber, configDesc := range dev.Desc.Configs {
+	for _, configNumber := range configurationIDs(dev) {
+		configDesc := dev.Desc.Configs[configNumber]
 		interfaceNumbers := make([]int, len(configDesc.Interfaces))
 		for i, interfaceDesc := range configDesc.Interfaces {
 			interfaceNumbers[i] = interfaceDesc.Number
 		}
+		sort.Ints(interfaceNumbers)
 		log.Printf("Available interfaces in configuration %d: %v", configNumber, interfaceNumbers)
 	}
 }
