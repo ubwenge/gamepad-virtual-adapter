@@ -4,6 +4,9 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/google/gousb"
@@ -22,13 +25,21 @@ const (
 type button struct {
 	name string
 	mask byte
+	key  keyCode
 }
 
 var buttons = []button{
-	{name: "A", mask: 0x10},
-	{name: "B", mask: 0x20},
-	{name: "X", mask: 0x40},
-	{name: "Y", mask: 0x80},
+	{name: "A", mask: 0x10, key: keySpace},
+	{name: "B", mask: 0x20, key: keyEscape},
+	{name: "X", mask: 0x40, key: keyE},
+	{name: "Y", mask: 0x80, key: keyQ},
+}
+
+var directionKeys = map[string]keyCode{
+	"Left":     keyA,
+	"Right":    keyD,
+	"Forward":  keyW,
+	"Backward": keyS,
 }
 
 func main() {
@@ -57,13 +68,34 @@ func main() {
 		log.Fatalf("Failed to open IN Endpoint 0x81: %v", err)
 	}
 
-	fmt.Println("Controller mapper online. Press A, B, X, Y, or move the joystick to an endpoint.")
-	liveReport(epIn)
+	keyboard := newMacKeyboard()
+	if !keyboardEventAccessGranted() {
+		log.Println("Warning: macOS may block synthesized keyboard events until Accessibility/Input Monitoring access is granted to this application.")
+	}
+	defer keyboard.ReleaseAll()
+
+	stop := make(chan struct{})
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(signals)
+	go func() {
+		<-signals
+		close(stop)
+	}()
+
+	fmt.Println("Controller mapper online. Stick maps to W/A/S/D; A/B/X/Y map to Space/Escape/E/Q.")
+	liveReport(epIn, keyboard, stop)
 }
 
-func readReport(epIn *gousb.InEndpoint) ([]byte, error) {
+func readReport(epIn *gousb.InEndpoint, stop <-chan struct{}) ([]byte, error) {
 	buffer := make([]byte, 32)
 	for {
+		select {
+		case <-stop:
+			return nil, context.Canceled
+		default:
+		}
+
 		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 		n, err := epIn.ReadContext(ctx, buffer)
 		cancel()
@@ -74,12 +106,18 @@ func readReport(epIn *gousb.InEndpoint) ([]byte, error) {
 	}
 }
 
-func liveReport(epIn *gousb.InEndpoint) {
+func liveReport(epIn *gousb.InEndpoint, keyboard keySynchronizer, stop <-chan struct{}) {
 	var lastButtonByte byte
 	lastJoystickDirection := ""
 
 	for {
-		report, err := readReport(epIn)
+		select {
+		case <-stop:
+			return
+		default:
+		}
+
+		report, err := readReport(epIn, stop)
 		if err != nil {
 			continue
 		}
@@ -92,14 +130,13 @@ func liveReport(epIn *gousb.InEndpoint) {
 		}
 
 		direction := joystickDirection(report)
-		if direction == "" {
-			// Non-endpoint, partial, diagonal, and neutral joystick states are silent.
-			lastJoystickDirection = ""
-			continue
-		}
-		if direction != lastJoystickDirection {
+		if direction != "" && direction != lastJoystickDirection {
 			fmt.Println("Joystick:", direction)
-			lastJoystickDirection = direction
+		}
+		lastJoystickDirection = direction
+
+		if desired, ok := desiredKeys(report); ok {
+			keyboard.Sync(desired)
 		}
 	}
 }
@@ -144,4 +181,23 @@ func joystickDirection(report []byte) string {
 		return ""
 	}
 	return name
+}
+
+// desiredKeys returns the keyboard state for a complete controller report.
+// Diagonal and non-endpoint joystick positions intentionally produce no stick key.
+func desiredKeys(report []byte) (map[keyCode]bool, bool) {
+	if len(report) < requiredReportBytes {
+		return nil, false
+	}
+
+	desired := make(map[keyCode]bool, len(buttons)+1)
+	for _, button := range buttons {
+		if report[buttonByteIndex]&button.mask != 0 {
+			desired[button.key] = true
+		}
+	}
+	if direction := joystickDirection(report); direction != "" {
+		desired[directionKeys[direction]] = true
+	}
+	return desired, true
 }
