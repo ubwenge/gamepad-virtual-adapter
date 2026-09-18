@@ -63,12 +63,11 @@ func runController(device deviceConfig, monitor bool, config mapperConfig) {
 	}
 	defer dev.Close()
 
-	dev.SetAutoDetach(true)
-	intf, done, err := dev.DefaultInterface()
+	intf, release, err := claimControllerInterface(dev)
 	if err != nil {
-		log.Fatalf("Failed to claim default interface: %v", err)
+		log.Fatalf("Failed to claim controller interface: %v", err)
 	}
-	defer done()
+	defer release()
 
 	epIn, err := intf.InEndpoint(1)
 	if err != nil {
@@ -98,6 +97,42 @@ func runController(device deviceConfig, monitor bool, config mapperConfig) {
 		}
 		return keyboard
 	})
+}
+
+// claimControllerInterface avoids DefaultInterface because this device reports
+// configuration ID 1 even though libusb reports its active configuration as 0.
+func claimControllerInterface(dev *gousb.Device) (*gousb.Interface, func(), error) {
+	if err := dev.SetAutoDetach(true); err != nil {
+		return nil, nil, fmt.Errorf("enable kernel driver auto-detach: %w", err)
+	}
+
+	cfg, err := dev.Config(1)
+	if err != nil {
+		logAvailableInterfaces(dev)
+		return nil, nil, fmt.Errorf("claim configuration 1: %w", err)
+	}
+
+	intf, err := cfg.Interface(0, 0)
+	if err != nil {
+		cfg.Close()
+		logAvailableInterfaces(dev)
+		return nil, nil, fmt.Errorf("claim interface 0 in configuration 1: %w", err)
+	}
+
+	return intf, func() {
+		intf.Close()
+		cfg.Close()
+	}, nil
+}
+
+func logAvailableInterfaces(dev *gousb.Device) {
+	for configNumber, configDesc := range dev.Desc.Configs {
+		interfaceNumbers := make([]int, len(configDesc.Interfaces))
+		for i, interfaceDesc := range configDesc.Interfaces {
+			interfaceNumbers[i] = interfaceDesc.Number
+		}
+		log.Printf("Available interfaces in configuration %d: %v", configNumber, interfaceNumbers)
+	}
 }
 
 type mapperKeyboard interface {
