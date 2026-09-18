@@ -1,4 +1,4 @@
-module pdp-mapper
+module gamepad-virtual-adapter
 
 go 1.27.1
 

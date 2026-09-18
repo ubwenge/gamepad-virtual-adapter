@@ -1,6 +1,6 @@
-# PDP Mapper
+# Gamepad Virtual Adapter
 
-`pdp-mapper` reads input reports from a USB game controller and turns configured
+`gamepad-virtual-adapter` reads input reports from a USB game controller and turns configured
 signals into macOS keyboard events. It includes a sample mapping for a PDP
 controller (`0E6F:0401`), with the left stick mapped to `WASD` and face buttons
 mapped to common game keys.
@@ -18,13 +18,13 @@ mapped to common game keys.
 Build the application from the repository root:
 
 ```sh
-go build -o pdp-mapper .
+go build -o gamepad-virtual-adapter .
 ```
 
 Run the included PDP mapping:
 
 ```sh
-./pdp-mapper
+./gamepad-virtual-adapter
 ```
 
 The program searches for the configured USB vendor and product IDs, then sends
@@ -49,7 +49,7 @@ go test ./...
    reports to standard output, making it easy to save them:
 
    ```sh
-   ./pdp-mapper --monitor --config config.local.toml > controller-capture.txt
+   ./gamepad-virtual-adapter --monitor --config config.local.toml > controller-capture.txt
    ```
 
 3. Press one controller input at a time and use the captured report for each
@@ -60,7 +60,7 @@ go test ./...
 4. Add one keyboard binding for every configured signal, then run:
 
    ```sh
-   ./pdp-mapper --config config.local.toml
+   ./gamepad-virtual-adapter --config config.local.toml
    ```
 
 Mapper mode requires valid IDs, at least one signal, and exactly one unique key
@@ -79,7 +79,7 @@ Use `--debug` to log each USB configuration, interface, and endpoint attempted
 during device setup:
 
 ```sh
-./pdp-mapper --config config.local.toml --debug
+./gamepad-virtual-adapter --config config.local.toml --debug
 ```
 
 This is useful when the controller is detected but its USB interface cannot be
